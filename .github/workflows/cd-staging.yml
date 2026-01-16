@@ -52,11 +52,16 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y ansible rsync
 
+      - name: Create Ansible inventory
+        run: |
+          mkdir -p ansible/inventory
+          cat > ansible/inventory/staging.ini << EOF
+          [staging]
+          staging_server ansible_host=${{ secrets.SSH_HOST }} ansible_user=${{ secrets.SSH_USER }} ansible_port=${{ secrets.SSH_PORT }} ansible_ssh_private_key_file=/tmp/ssh_key
+          EOF
+
       - name: Deploy with Ansible
         env:
-          SSH_HOST: ${{ secrets.SSH_HOST }}
-          SSH_USER: ${{ secrets.SSH_USER }}
-          SSH_PORT: ${{ secrets.SSH_PORT }}
           APP_PORT: ${{ secrets.APP_PORT }}
           ANSIBLE_HOST_KEY_CHECKING: 'False'
         run: |
