@@ -1,0 +1,84 @@
+name: CD Strategy 2 - Production Deployment
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*.*.*'
+
+jobs:
+  deploy-production:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: |
+          npm run lint
+          npm run test:unit
+          npm run test:integration
+
+      - name: Build application
+        run: npm run build
+
+      - name: Setup SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > /tmp/ssh_key
+          chmod 600 /tmp/ssh_key
+          ssh-keyscan -H ${{ secrets.SSH_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Install Ansible
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ansible rsync
+
+      - name: Create Ansible inventory
+        run: |
+          mkdir -p ansible/inventory
+          cat > ansible/inventory/production.ini << EOF
+          [production]
+          production_server ansible_host=${{ secrets.SSH_HOST }} ansible_user=${{ secrets.SSH_USER }} ansible_port=${{ secrets.SSH_PORT }} ansible_ssh_private_key_file=/tmp/ssh_key
+          EOF
+
+      - name: Deploy with Ansible
+        env:
+          APP_PORT: ${{ secrets.APP_PORT }}
+          ANSIBLE_HOST_KEY_CHECKING: 'False'
+        run: |
+          cd ansible
+          ansible-playbook -i inventory/production.ini deploy.yml -vv
+
+      - name: Verify deployment
+        run: |
+          sleep 5
+          curl -f http://${{ secrets.SSH_HOST }}:${{ secrets.APP_PORT }}/api/health || exit 1
+
+      - name: Cleanup SSH key
+        if: always()
+        run: rm -f /tmp/ssh_key
+
+      - name: Create deployment notification
+        if: success()
+        run: |
+          echo "✅ Production deployment completed successfully"
+          echo "🌐 Application URL: http://${{ secrets.SSH_HOST }}:${{ secrets.APP_PORT }}"
+          echo "💚 Health check: http://${{ secrets.SSH_HOST }}:${{ secrets.APP_PORT }}/api/health"
+          if [ "${{ github.ref_type }}" = "tag" ]; then
+            echo "🏷️ Deployed version: ${{ github.ref_name }}"
+          fi

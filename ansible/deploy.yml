@@ -1,0 +1,150 @@
+---
+- name: Deploy Next.js E-Commerce Application
+  hosts: all
+  become: yes
+  vars:
+    app_name: ecommerce-nextjs
+    app_user: "{{ ansible_user }}"
+    app_dir: "/var/www/{{ app_name }}"
+    app_port: "{{ lookup('env', 'APP_PORT') | default('3003', true) }}"
+    node_version: "20.x"
+
+  tasks:
+    - name: Update apt cache
+      apt:
+        update_cache: yes
+        cache_valid_time: 3600
+
+    - name: Install required system packages
+      apt:
+        name:
+          - curl
+          - git
+          - build-essential
+        state: present
+
+    - name: Check if Node.js is installed
+      command: node --version
+      register: node_check
+      ignore_errors: yes
+      changed_when: false
+
+    - name: Download NodeSource setup script
+      get_url:
+        url: "https://deb.nodesource.com/setup_{{ node_version }}"
+        dest: /tmp/nodesource_setup.sh
+        mode: '0755'
+      when: node_check.rc != 0
+
+    - name: Run NodeSource setup script
+      command: bash /tmp/nodesource_setup.sh
+      when: node_check.rc != 0
+
+    - name: Install Node.js
+      apt:
+        name: nodejs
+        state: present
+        update_cache: yes
+      when: node_check.rc != 0
+
+    - name: Verify Node.js installation
+      command: node --version
+      register: node_version_output
+      changed_when: false
+
+    - name: Display Node.js version
+      debug:
+        msg: "Node.js version: {{ node_version_output.stdout }}"
+
+    - name: Create application directory
+      file:
+        path: "{{ app_dir }}"
+        state: directory
+        owner: "{{ app_user }}"
+        group: "{{ app_user }}"
+        mode: '0755'
+
+    - name: Copy application files
+      synchronize:
+        src: "{{ playbook_dir }}/../"
+        dest: "{{ app_dir }}/"
+        delete: yes
+        rsync_opts:
+          - "--exclude=.git"
+          - "--exclude=node_modules"
+          - "--exclude=.next"
+          - "--exclude=ansible"
+          - "--exclude=.github"
+
+    - name: Set ownership of application files
+      file:
+        path: "{{ app_dir }}"
+        owner: "{{ app_user }}"
+        group: "{{ app_user }}"
+        recurse: yes
+
+    - name: Install npm dependencies
+      npm:
+        path: "{{ app_dir }}"
+        state: present
+      become_user: "{{ app_user }}"
+      environment:
+        NODE_ENV: production
+
+    - name: Build Next.js application
+      command: npm run build
+      args:
+        chdir: "{{ app_dir }}"
+      become_user: "{{ app_user }}"
+      environment:
+        NODE_ENV: production
+
+    - name: Create systemd service file
+      template:
+        src: templates/nextjs.service.j2
+        dest: "/etc/systemd/system/{{ app_name }}.service"
+        mode: '0644'
+      notify:
+        - Reload systemd
+        - Restart application
+
+    - name: Enable application service
+      systemd:
+        name: "{{ app_name }}"
+        enabled: yes
+        daemon_reload: yes
+
+    - name: Start application service
+      systemd:
+        name: "{{ app_name }}"
+        state: started
+
+    - name: Wait for application to start
+      wait_for:
+        port: "{{ app_port }}"
+        delay: 2
+        timeout: 30
+
+    - name: Check health endpoint
+      uri:
+        url: "http://localhost:{{ app_port }}/api/health"
+        method: GET
+        status_code: 200
+      register: health_check
+      retries: 5
+      delay: 3
+      until: health_check.status == 200
+
+    - name: Display health check result
+      debug:
+        msg: "Application is healthy: {{ health_check.json }}"
+
+  handlers:
+    - name: Reload systemd
+      systemd:
+        daemon_reload: yes
+
+    - name: Restart application
+      systemd:
+        name: "{{ app_name }}"
+        state: restarted
