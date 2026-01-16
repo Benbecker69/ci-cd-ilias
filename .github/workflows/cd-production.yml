@@ -13,7 +13,6 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: production
-      url: http://${{ secrets.SSH_HOST }}:${{ secrets.APP_PORT }}
 
     steps:
       - name: Checkout code
