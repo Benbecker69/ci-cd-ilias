@@ -3,7 +3,7 @@ import CatalogPage from '@/app/catalog/page'
 
 // Mock Next.js Link component
 jest.mock('next/link', () => {
-  const MockLink = ({ children, ...props }: { children: React.ReactNode; [key: string]: any }) => {
+  const MockLink = ({ children, ...props }: React.PropsWithChildren<React.ComponentPropsWithoutRef<'a'>>) => {
     return <a {...props}>{children}</a>
   }
   MockLink.displayName = 'MockLink'

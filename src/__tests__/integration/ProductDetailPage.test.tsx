@@ -4,7 +4,7 @@ import * as navigation from 'next/navigation'
 
 // Mock Next.js modules
 jest.mock('next/link', () => {
-  const MockLink = ({ children, ...props }: { children: React.ReactNode; [key: string]: any }) => {
+  const MockLink = ({ children, ...props }: React.PropsWithChildren<React.ComponentPropsWithoutRef<'a'>>) => {
     return <a {...props}>{children}</a>
   }
   MockLink.displayName = 'MockLink'
